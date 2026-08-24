@@ -1,6 +1,6 @@
 import { auth } from '@/services/auth';
-import { userService, psychologistService, patientService, auditService } from '@/services/api';
-import type { Usuario, Psicologo, ClientePaciente, LogAcao } from '@/types';
+import { userService, psychologistService, patientService } from '@/services/api';
+import type { Usuario, Psicologo, ClientePaciente } from '@/types';
 
 function getDemoUsers(): Usuario[] {
   const raw = localStorage.getItem('psico_demo_users');
@@ -12,13 +12,21 @@ function getDemoUsers(): Usuario[] {
     email: u.email,
     perfilNome: u.perfilNome,
     situacao: u.situacao,
-  }));
+  })) as Usuario[];
+}
+
+function saveDemoUsers(users: Array<{ id: number; nome: string; email: string; perfilNome: string; situacao: Usuario['situacao'] }>): void {
+  localStorage.setItem('psico_demo_users', JSON.stringify(users));
 }
 
 function getDemoPsychologists(): Psicologo[] {
   const raw = localStorage.getItem('psico_demo_psychologists');
   if (!raw) return [];
   return JSON.parse(raw);
+}
+
+function saveDemoPsychologists(psicologos: Psicologo[]): void {
+  localStorage.setItem('psico_demo_psychologists', JSON.stringify(psicologos));
 }
 
 function getDemoPatients(): ClientePaciente[] {
@@ -40,6 +48,10 @@ export async function renderAdminDashboard(usuario: Usuario): Promise<void> {
   const logoutBtn = document.getElementById('nav-logout')!;
   logoutBtn.onclick = async () => {
     await auth.logout();
+    localStorage.removeItem('psico_demo_session');
+    localStorage.removeItem('token');
+    localStorage.removeItem('usuario');
+    sessionStorage.setItem('psico_logout', '1');
     location.reload();
   };
 
@@ -61,6 +73,14 @@ export async function renderAdminDashboard(usuario: Usuario): Promise<void> {
       <div id="usuarios-container" class="table-container">
         <p style="padding: 1rem; color: var(--gray-500);">Carregando usuários...</p>
       </div>
+
+      <div class="header-actions" style="margin-top: 2rem;">
+        <h2 class="section-title" style="margin-bottom: 0;">Aprovar Psicologos</h2>
+      </div>
+
+      <div id="aprovacoes-container" class="table-container">
+        <p style="padding: 1rem; color: var(--gray-500);">Carregando aprovacoes...</p>
+      </div>
     </div>
   `;
 
@@ -70,6 +90,129 @@ export async function renderAdminDashboard(usuario: Usuario): Promise<void> {
 
   await carregarEstatisticas();
   await carregarUsuarios();
+  await carregarAprovacoes();
+}
+
+async function carregarAprovacoes(): Promise<void> {
+  const container = document.getElementById('aprovacoes-container')!;
+  try {
+    const psicologos = await psychologistService.listarPsicologos();
+    const pendentes = psicologos.filter((p) => !p.aprovado);
+
+    if (pendentes.length === 0) {
+      container.innerHTML = '<p style="padding: 1rem; color: var(--gray-500);">Nenhuma solicitacao pendente.</p>';
+      return;
+    }
+
+    const rows = pendentes
+      .map(
+        (p) => `
+        <tr>
+          <td>${p.nome}</td>
+          <td>${p.email || '-'}</td>
+          <td>${p.areaAtuacao || '-'}</td>
+          <td>${p.crm || '-'}</td>
+          <td>
+            <button class="btn btn-sm btn-success btn-aprovar" data-id="${p.id}">Aprovar</button>
+            <button class="btn btn-sm btn-danger btn-reprovar" data-id="${p.id}">Recusar</button>
+          </td>
+        </tr>
+      `
+      )
+      .join('');
+
+    container.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>E-mail</th>
+            <th>Area</th>
+            <th>CRM</th>
+            <th>Acoes</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+
+    container.querySelectorAll('.btn-aprovar').forEach((btn) => {
+      btn.addEventListener('click', () => aprovarPsicologo(Number((btn as HTMLElement).dataset.id), true));
+    });
+
+    container.querySelectorAll('.btn-reprovar').forEach((btn) => {
+      btn.addEventListener('click', () => aprovarPsicologo(Number((btn as HTMLElement).dataset.id), false));
+    });
+  } catch {
+    const psicologos = getDemoPsychologists();
+    const pendentes = psicologos.filter((p) => !p.aprovado);
+
+    if (pendentes.length === 0) {
+      container.innerHTML = '<p style="padding: 1rem; color: var(--gray-500);">Nenhuma solicitacao pendente.</p>';
+      return;
+    }
+
+    const rows = pendentes
+      .map(
+        (p) => `
+        <tr>
+          <td>${p.nome}</td>
+          <td>${p.email || '-'}</td>
+          <td>${p.areaAtuacao || '-'}</td>
+          <td>${p.crm || '-'}</td>
+          <td>
+            <button class="btn btn-sm btn-success btn-aprovar" data-id="${p.id}">Aprovar</button>
+            <button class="btn btn-sm btn-danger btn-reprovar" data-id="${p.id}">Recusar</button>
+          </td>
+        </tr>
+      `
+      )
+      .join('');
+
+    container.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>E-mail</th>
+            <th>Area</th>
+            <th>CRM</th>
+            <th>Acoes</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+
+    container.querySelectorAll('.btn-aprovar').forEach((btn) => {
+      btn.addEventListener('click', () => aprovarPsicologoDemo(Number((btn as HTMLElement).dataset.id), true));
+    });
+
+    container.querySelectorAll('.btn-reprovar').forEach((btn) => {
+      btn.addEventListener('click', () => aprovarPsicologoDemo(Number((btn as HTMLElement).dataset.id), false));
+    });
+  }
+}
+
+async function aprovarPsicologo(id: number, aprovado: boolean): Promise<void> {
+  try {
+    await psychologistService.aprovarPsicologo(id, aprovado);
+    await carregarAprovacoes();
+    await carregarEstatisticas();
+  } catch {
+    alert('Erro ao atualizar aprovacao.');
+  }
+}
+
+async function aprovarPsicologoDemo(id: number, aprovado: boolean): Promise<void> {
+  const psicologos = getDemoPsychologists();
+  const idx = psicologos.findIndex((p) => p.id === id);
+  if (idx !== -1) {
+    psicologos[idx].aprovado = aprovado;
+    saveDemoPsychologists(psicologos);
+    await carregarAprovacoes();
+    await carregarEstatisticas();
+  }
 }
 
 async function carregarEstatisticas(): Promise<void> {
@@ -342,7 +485,7 @@ function openUsuarioModal(id?: number): void {
         await userService.atualizarUsuario(id, senha ? { ...data, senha } : data);
       } else {
         const senha = (form.elements.namedItem('senha') as HTMLInputElement).value;
-        await userService.cadastrarUsuario({ ...data, senha });
+        await userService.cadastrarUsuario({ ...data, senha } as any);
       }
       modal.remove();
       await carregarUsuarios();

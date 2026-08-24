@@ -1,5 +1,6 @@
 import { auth } from '@/services/auth';
-import type { LoginRequest, Usuario } from '@/types';
+import { renderHomePage } from '@/pages/HomePage';
+import type { Usuario } from '@/types';
 
 const STORAGE_KEYS = {
   TOKEN: 'token',
@@ -18,10 +19,11 @@ function ensureDemoPatients(): void {
 export function renderLogin(): void {
   ensureDemoPatients();
   const container = document.getElementById('page-login')!;
+  container.style.display = 'block';
   container.innerHTML = `
     <div class="card">
       <h2 style="text-align: center; margin-bottom: 0.5rem; color: var(--gray-900);">PsicoGest</h2>
-      <p style="text-align: center; color: var(--gray-500); margin-bottom: 2rem; font-size: 0.875rem;">Gestão para Profissionais de Psicologia</p>
+      <p style="text-align: center; color: var(--gray-500); margin-bottom: 2rem; font-size: 0.875rem;">Gestao para Profissionais de Psicologia</p>
       
       <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; background: var(--gray-100); padding: 0.25rem; border-radius: 0.375rem;">
         <button id="tab-login" type="button" class="btn btn-sm" style="flex: 1; background: white;">Login</button>
@@ -63,14 +65,15 @@ export function renderLogin(): void {
           <input type="password" id="cad-senha" name="senha" required minlength="6" />
         </div>
         <div class="form-group">
-          <label for="cad-perfil">Perfil</label>
+          <label for="cad-perfil">Tipo de conta</label>
           <select id="cad-perfil" name="perfil" required>
-            <option value="Psicólogo">Psicólogo</option>
+            <option value="Cliente">Cliente (buscar psicologos e agendar)</option>
+            <option value="Psicólogo">Psicologo</option>
             <option value="Administrador">Administrador</option>
           </select>
         </div>
         <div id="cadastro-error" class="alert alert-error" style="display: none;"></div>
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Cadastrar e Entrar</button>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Cadastrar</button>
       </form>
       
       <p style="text-align: center; margin-top: 1.5rem; font-size: 0.8125rem; color: var(--gray-500);">
@@ -108,7 +111,6 @@ export function renderLogin(): void {
 
     const email = (loginForm.elements.namedItem('email') as HTMLInputElement).value.trim();
     const senha = (loginForm.elements.namedItem('senha') as HTMLInputElement).value;
-    const modoDemo = (document.getElementById('modo-demo') as HTMLInputElement).checked;
 
     if (!email || !senha) {
       errorDiv.textContent = 'Preencha todos os campos.';
@@ -117,17 +119,11 @@ export function renderLogin(): void {
     }
 
     try {
-      let response;
-      if (modoDemo) {
-        const fakeResponse = await auth.login({ email, senha });
-        response = fakeResponse;
-      } else {
-        response = await auth.login({ email, senha });
-      }
+      const response = await auth.login({ email, senha });
       showDashboard(response.usuario);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } };
-      errorDiv.textContent = error.response?.data?.message || 'Credenciais inválidas. Tente novamente.';
+      errorDiv.textContent = error.response?.data?.message || 'Credenciais invalidas. Tente novamente.';
       errorDiv.style.display = 'block';
     }
   });
@@ -166,7 +162,9 @@ function showDashboard(usuario: { nome: string; perfilNome?: string }): void {
     import('./AdminDashboard').then((m) => m.renderAdminDashboard(usuario as Usuario));
   } else if (perfil === 'psicólogo' || perfil === 'psicologo') {
     import('./PsychologistDashboard').then((m) => m.renderPsychologistDashboard(usuario as Usuario));
+  } else if (perfil === 'cliente') {
+    renderHomePage();
   } else {
-    alert('Perfil de acesso não reconhecido. Contate o administrador.');
+    alert('Perfil de acesso nao reconhecido. Contate o administrador.');
   }
 }

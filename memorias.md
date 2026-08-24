@@ -87,9 +87,10 @@ frontend/
     │   ├── api.ts                 # Servicos de comunicacao com API
     │   └── auth.ts                # Servico de autenticacao
     ├── pages/
-    │   ├── Login.ts               # Tela de login
+    │   ├── Login.ts               # Tela de login + cadastro
+    │   ├── HomePage.ts            # Tela inicial (cliente busca psicologos)
     │   ├── AdminDashboard.ts      # Painel do administrador
-    │   └── PsychologistDashboard.ts # Painel do psicologo
+    │   └── PsychologistDashboard.ts # Painel do psicologo (perfil + agendamentos)
     └── styles/
         └── global.css             # Estilos globais da aplicacao
 ```
@@ -98,10 +99,11 @@ frontend/
 
 1. **SPA (Single Page Application):** Navegacao entre telas sem recarregar a pagina, usando modulos ES dinamicos.
 2. **Servicos separados:** Camada de servicos (`services/`) isola a logica de comunicacao com a API.
-3. **Tipagem forte:** Interfaces TypeScript definem contratos claros para dados (usuario, paciente, psicologo, logs).
-4. **Autenticacao via token:** Token JWT armazenado em localStorage, interceptado pelo axios para requisicoes autenticadas.
+3. **Tipagem forte:** Interfaces TypeScript definem contratos claros para dados.
+4. **Autenticacao via token:** Token armazenado em localStorage, interceptado pelo axios para requisicoes autenticadas.
 5. **Responsivo:** CSS com grid e variaveis para adaptacao mobile.
 6. **Proxy no Vite:** Configurado para redirecionar chamadas `/api` para `localhost:4000` em desenvolvimento.
+7. **Modo demonstracao:** Dados armazenados no localStorage para funcionar sem back-end.
 
 ### 2.4 Tipos TypeScript Definidos
 
@@ -114,6 +116,11 @@ frontend/
 - ClientePaciente
 - Vinculo
 - LogAcao
+- Certificado
+- Curso
+- HorarioDisponivel
+- Agendamento
+- PerfilPsicologo
 - LoginRequest
 - LoginResponse
 - ApiError
@@ -128,35 +135,50 @@ frontend/
    - Redirecionamento por perfil
    - Modo demonstracao: checkbox "Usar modo demonstração (sem back-end)"
    - Cadastro de novo usuario integrado na mesma tela (tab Cadastro)
-   - Credenciais demo padrao: `admin@demo.com` / `admin123` e `psicologo@demo.com` / `psicologo123`
+   - Credenciais demo padrao: `admin@demo.com` / `admin123` e `psicologo@demo.com` / `psicologo123` e `cliente@demo.com` / `cliente123`
+   - **NOVO:** Opcao de cadastro como Cliente (além de Psicologo e Administrador)
 
-2. **AdminDashboard** (`AdminDashboard.ts`)
+2. **HomePage** (`HomePage.ts`) - **NOVO**
+   - Tela inicial para clientes/usuarios nao autenticados ou logados como cliente
+   - Listagem de psicologos aprovados e ativos
+   - Busca por nome ou area de atuacao
+   - Modal de agendamento de sessao (unica ou semanal)
+   - Validacao de conflito de horario
+
+3. **AdminDashboard** (`AdminDashboard.ts`)
    - Estatisticas (usuarios, psicologos, pacientes)
    - Listagem de usuarios com acoes (editar, bloquear/liberar)
    - Modal para cadastro/edicao de usuarios
    - Controle de situacao (ativo/inativo/bloqueado)
+   - **NOVO:** Aprovacao de psicologos pendentes
    - Fallback para dados locais quando API indisponivel
 
-3. **PsychologistDashboard** (`PsychologistDashboard.ts`)
-   - Estatisticas do psicologo
-   - Listagem de pacientes vinculados
-   - Pesquisa/filtro por nome
-   - Modal para cadastro/edicao de pacientes
-   - Fallback para dados locais quando API indisponivel
+4. **PsychologistDashboard** (`PsychologistDashboard.ts`) - **REFEITO**
+   - **REMOVIDO:** CRUD de pacientes (nao e o psicologo quem decide)
+   - **NOVO:** Perfil profissional do psicologo (bio, valor sessao, certificados, cursos, horarios)
+   - **NOVO:** Solicitacoes de agendamento pendentes (confirmar/recusar)
+   - **NOVO:** Calendario mensal simples com agendamentos confirmados e pendentes
+   - Modal para edicao completa do perfil profissional
 
 ### 2.6 Servicos de API
 
 **Em `src/services/api.ts`:**
 - `authService` - login e logout
 - `userService` - CRUD de usuarios
-- `psychologistService` - CRUD de psicologos
+- `psychologistService` - CRUD de psicologos + aprovar psicologo + atualizar perfil
 - `patientService` - CRUD de clientes/pacientes
+- `certificateService` - CRUD de certificados do psicologo
+- `courseService` - CRUD de cursos do psicologo
+- `scheduleService` - CRUD de horarios disponiveis do psicologo
+- `appointmentService` - CRUD de agendamentos
 - `auditService` - Listagem de logs de auditoria
 
 **Em `src/services/auth.ts`:**
 - Gerenciamento de token e dados do usuario no localStorage
 - Verificacao de autenticacao e perfil
 - Logout com limpeza de estado
+- Cadastro de usuarios demo (admin, psicologo, cliente)
+- Tratamento de erro na logout para nao quebrar em modo demo
 
 ---
 
@@ -184,24 +206,92 @@ O aplicativo estara disponivel em `http://localhost:3000`.
 
 ---
 
-## 4. Proximos Passos
+## 4. Funcionalidades Implementadas (2026-08-24)
 
-### 4.1 Back-end (pendente)
+### 4.1 Correcoes e Melhorias
+
+1. **Botao Sair funcionando:** Corrigido logout em todos os dashboards. Agora limpa token, usuario, sessao demo e recarrega para a tela de login.
+2. **Tela de Login desativada temporariamente:** Auto-login como Admin Demo na primeira vez. Botao Sair leva para a tela de login.
+3. **Cadastro de Cliente:** Adicionada opcao "Cliente" no cadastro. Clientes sao redirecionados para a HomePage apos login.
+4. **HomePage (Tela Inicial):** Criada pagina inicial onde clientes podem buscar psicologos e solicitar agendamentos.
+5. **Agendamento de Sessoes:** Cliente pode agendar sessao unica ou semanal com psicologo.
+6. **Perfil Profissional do Psicologo:** Psicologo pode editar bio, valor da sessao, adicionar certificados, cursos e horarios disponiveis.
+7. **Aprovacao de Psicologos:** Admin pode aprovar ou recusar cadastros de psicologos.
+8. **Calendario do Psicologo:** Calendario mensal visual com agendamentos confirmados e pendentes.
+9. **Solicitacoes de Agendamento:** Psicologo pode confirmar ou recusar solicitacoes de agendamento.
+
+### 4.2 Bugs Conhecidos (NAO corrigidos ainda)
+
+1. **TypeScript errors em `AdminDashboard.ts`:**
+   - Linha 413: `saveDemoUsers(users)` - Tipo `Usuario[]` nao aceito pela funcao que espera tipo especifico sem `perfilId`.
+   - Linha 485: `cadastrarUsuario({ ...data, senha })` - Propriedade `senha` nao existe em `Partial<Usuario>`.
+   
+2. **TypeScript error em `api.ts`:**
+   - Linha 4: Cast de `import.meta.env` para acessar `VITE_API_URL` foi feito com `as unknown as Record<string, Record<string, string>>` para evitar erro de tipo, mas nao e a solucao ideal.
+
+3. **TypeScript warning em `HomePage.ts`:**
+   - Linha 67: Variavel `container` declarada mas nao usada (removida na correcao, mas pode ter sobrado).
+
+4. **TypeScript warning em `PsychologistDashboard.ts`:**
+   - Linha 11: `saveDemoPsychologists` declarada mas nao usada (foi removida, mas verificar se ainda ha warnings).
+
+5. **TypeScript warning em `Login.ts`:**
+   - Linha 3: `LoginRequest` importada mas nao usada (removida na correcao, mas verificar).
+   - Linha 114: `modoDemo` declarada mas nao usada (removida na correcao, mas verificar).
+
+6. **TypeScript warning em `main.ts`:**
+   - Linha 1: `auth` importado mas nao usado (removido na correcao, mas verificar).
+
+7. **Possivel bug de roteamento:** A pagina `HomePage` usa `id="page-home"` que foi adicionada no `index.html`, mas a navegacao entre paginas nao oculta todas as paginas corretamente em todos os casos.
+
+8. **Dados demo inconsistentes:** Os dados demo de psicologos e agendamentos estao em `localStorage` mas nao ha sincronizacao completa com o `auth.ts` que so gerencia usuarios.
+
+9. **Seguranca:** O hash de senha no front-end e apenas um hash simples numerico, nao e seguro para producao (e apenas demo).
+
+10. **Back-end nao existe:** Todos os endpoints da API estao definidos no front-end mas o back-end ainda nao foi implementado.
+
+---
+
+## 5. Proximos Passos
+
+### 5.1 Correcoes Urgentes (Bugs TypeScript)
+
+- [ ] Corrigir erro em `AdminDashboard.ts:413` - ajustar tipo de `saveDemoUsers`
+- [ ] Corrigir erro em `AdminDashboard.ts:485` - ajustar tipo do parametro de `cadastrarUsuario`
+- [ ] Corrigir cast de `import.meta.env` em `api.ts` de forma adequada (adicionar tipos do Vite)
+- [ ] Verificar e remover warnings de variaveis nao usadas
+
+### 5.2 Back-end (pendente)
 
 - Criar estrutura Node.js + TypeScript
 - Implementar API REST com Express/Fastify
 - Configurar Prisma/TypeORM ou conexao direta MySQL
 - Implementar autenticacao JWT com bcrypt
-- Criar endpoints minimos da API
+- Criar endpoints minimos da API incluindo novos endpoints:
+  - `PATCH /api/psychologists/:id/aprovar` - Aprovar psicologo
+  - `PATCH /api/psychologists/:id/perfil` - Atualizar perfil profissional
+  - `GET /api/psychologists/:id/certificates` - Listar certificados
+  - `POST /api/psychologists/:id/certificates` - Cadastrar certificado
+  - `DELETE /api/psychologists/:id/certificates/:id` - Remover certificado
+  - `GET /api/psychologists/:id/courses` - Listar cursos
+  - `POST /api/psychologists/:id/courses` - Cadastrar curso
+  - `DELETE /api/psychologists/:id/courses/:id` - Remover curso
+  - `GET /api/psychologists/:id/schedule` - Listar horarios
+  - `POST /api/psychologists/:id/schedule` - Cadastrar horario
+  - `DELETE /api/psychologists/:id/schedule/:id` - Remover horario
+  - `GET /api/appointments/psychologist/:id` - Listar agendamentos do psicologo
+  - `GET /api/appointments/client/:id` - Listar agendamentos do cliente
+  - `POST /api/appointments` - Cadastrar agendamento
+  - `PATCH /api/appointments/:id/status` - Atualizar status do agendamento
 
-### 4.2 Banco de Dados (pendente)
+### 5.3 Banco de Dados (pendente)
 
 - Criar script SQL com DER
 - Implementar tabelas e relacionamentos
 - Criar seed com dados ficticios
 - Configurar usuario e permissoes MySQL
 
-### 4.3 Funcionalidades Adicionais
+### 5.4 Funcionalidades Adicionais
 
 - [ ] Implementar funcionalidade inovadora (a definir pelo grupo)
 - [ ] Adicionar validacoes de formulario mais robustas
@@ -209,8 +299,10 @@ O aplicativo estara disponivel em `http://localhost:3000`.
 - [ ] Adicionar tratamento de erros global
 - [ ] Implementar refresh de token
 - [ ] Adicionar feedback visual (toasts/snackbars)
+- [ ] Permitir que psicologo aceite/recuse agendamento (ja tem botoes, mas precisa do back-end)
+- [ ] Gerar agendamentos semanais automaticamente quando tipo for "semanal"
 
-### 4.4 Documentacao
+### 5.5 Documentacao
 
 - [ ] README.md do projeto principal
 - [ ] Documentacao tecnica da API
@@ -219,7 +311,7 @@ O aplicativo estara disponivel em `http://localhost:3000`.
 
 ---
 
-## 5. Observacoes
+## 6. Observacoes
 
 - O front-end atual e uma base funcional pronta para consumo da API.
 - A estrutura foi projetada para ser facilmente extensivel.
@@ -228,5 +320,10 @@ O aplicativo estara disponivel em `http://localhost:3000`.
 - Os estilos usam variaveis CSS para facilitar customizacao da identidade visual.
 - Foi adicionado modo demonstracao local para permitir uso sem back-end: login e cadastro persistem no localStorage.
 - Dashboard inclui fallback para dados demo quando API esta indisponivel.
+- **NOVO:** Botao Sair agora funciona corretamente em todos os dashboards.
+- **NOVO:** Psicologo nao cria mais pacientes; ele apenas confirma solicitacoes de agendamento.
+- **NOVO:** Calendario mensal simples implementado no painel do psicologo.
+- **NOVO:** Sistema de aprovacao de psicologos pelo admin implementado.
 
-**Proxima etapa:** Implementar o back-end em TypeScript e o banco de dados MySQL para integrar com este front-end.
+**Proxima etapa:** Corrigir bugs TypeScript restantes e implementar o back-end em TypeScript e o banco de dados MySQL para integrar com este front-end.
+

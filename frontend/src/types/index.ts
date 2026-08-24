@@ -23,6 +23,11 @@ export interface Psicologo {
   telefone?: string;
   email?: string;
   situacao: 'ativo' | 'inativo';
+  bio?: string;
+  valorSessao?: number;
+  aprovado?: boolean;
+  avaliacao?: number;
+  quantidadeSessoes?: number;
 }
 
 export interface ClientePaciente {
@@ -53,6 +58,57 @@ export interface LogAcao {
   entidade: string;
   entidadeId?: number;
   dataHora: string;
+}
+
+export interface Certificado {
+  id: number;
+  psicologoId: number;
+  titulo: string;
+  instituicao: string;
+  dataEmissao?: string;
+  descricao?: string;
+}
+
+export interface Curso {
+  id: number;
+  psicologoId: number;
+  nome: string;
+  instituicao: string;
+  cargaHoraria?: number;
+  dataConclusao?: string;
+}
+
+export interface HorarioDisponivel {
+  id: number;
+  psicologoId: number;
+  diaSemana: number;
+  horaInicio: string;
+  horaFim: string;
+  duracaoMinutos: number;
+}
+
+export interface Agendamento {
+  id: number;
+  psicologoId: number;
+  clienteId: number;
+  psicologoNome?: string;
+  clienteNome?: string;
+  data: string;
+  horaInicio: string;
+  horaFim: string;
+  tipo: 'unico' | 'semanal';
+  situacao: 'pendente' | 'confirmado' | 'recusado' | 'cancelado';
+  dataCriacao: string;
+  dataAtualizacao: string;
+}
+
+export interface PerfilPsicologo {
+  bio?: string;
+  certificados: Certificado[];
+  cursos: Curso[];
+  horarios: HorarioDisponivel[];
+  valorSessao?: number;
+  aprovado: boolean;
 }
 
 export interface LoginRequest {
