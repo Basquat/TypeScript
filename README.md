@@ -20,9 +20,19 @@ chaves primárias e estrangeiras, restrições, triggers e os dados fictícios d
 
 **Opção A — linha de comando**
 
+No Windows (PowerShell), a pasta atual precisa ser a do projeto:
+
+```powershell
+cmd /c "mysql -u root -p < psicogest.sql"
+```
+
+No macOS/Linux:
+
 ```bash
 mysql -u root -p < psicogest.sql
 ```
+
+Se o `mysql` não for reconhecido no Windows, use o caminho completo do `mysql.exe` (ex.: `C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe`).
 
 **Opção B — MySQL Workbench**
 
@@ -68,23 +78,37 @@ perfis ─< usuarios ─1:1─ psicologos ─< vinculos >─ clientes_pacientes
 
 ## 2. Rodando a aplicação
 
-**Pré-requisito:** Node.js 22 ou 24 ([nodejs.org](https://nodejs.org)) e o banco do passo 1 já importado.
+**Pré-requisitos:** Node.js 22 ou 24 ([nodejs.org](https://nodejs.org)) e o banco do passo 1 já importado.
+Todos os comandos são executados na **pasta raiz do projeto** (a que contém `package.json` e `psicogest.sql`).
 
-1. Configure a conexão com o MySQL:
+1. Crie o arquivo de configuração do back-end:
 
-   ```bash
-   cp backend/.env.example backend/.env
+   ```powershell
+   Copy-Item backend/.env.example backend/.env
    ```
+
+   No macOS/Linux: `cp backend/.env.example backend/.env`
 
    Abra `backend/.env` e preencha `DB_PASSWORD` com a senha do usuário `root` do seu MySQL
    (ou troque `DB_USER`/`DB_PASSWORD` por outro usuário com acesso ao banco `psicogest`).
+   Esse arquivo guarda senhas e não vai para o Git (já está no `.gitignore`).
 
-2. Instale e rode:
+2. Instale as dependências. Um único `npm install` na raiz instala o back-end e o front-end:
 
-   ```bash
+   ```powershell
    npm install
-   npm run dev      # API em :3333 · web em http://localhost:5173
    ```
+
+3. Suba a API e a interface juntas:
+
+   ```powershell
+   npm run dev
+   ```
+
+   - API: http://localhost:3333
+   - Web: http://localhost:5173
+
+Deixe esse terminal aberto enquanto usa a aplicação. Para parar, pressione `Ctrl+C`.
 
 Abra **http://localhost:5173**. Tudo o que for cadastrado na aplicação é gravado no banco `psicogest` do MySQL.
 A tela de login tem botões de acesso rápido para as contas criadas pelo script:
@@ -104,6 +128,18 @@ Outros comandos:
 | `npm run build` e `npm start` | Versão compilada (API + front) em http://localhost:3333 |
 
 Em produção, preencha também `JWT_SECRET` e `NOTES_KEY` no `backend/.env`.
+
+### Problemas comuns
+
+| Sintoma | Causa e solução |
+| ------- | --------------- |
+| `ER_ACCESS_DENIED_ERROR` ao rodar `npm run dev` ou `npm test` | `DB_USER`/`DB_PASSWORD` em `backend/.env` não batem com o MySQL. Corrija e rode de novo. |
+| `ER_BAD_DB_ERROR` / `Unknown database 'psicogest'` | O `psicogest.sql` não foi importado. Volte ao passo 1. |
+| `'mysql' não é reconhecido` (Windows) | O cliente MySQL não está no PATH. Use o caminho completo do `mysql.exe` ou o MySQL Workbench. |
+| `npm.ps1 não pode ser carregado` (Windows) | Use `npm.cmd install` e `npm.cmd run dev` no lugar de `npm`. |
+| `EADDRINUSE` na porta 3333 | Outro processo usa a porta. Feche o `npm run dev` anterior ou troque `PORT` em `backend/.env`. |
+| Aviso `JWT_SECRET não definido` ou `NOTES_KEY não definido` | Normal em desenvolvimento. Em produção são obrigatórios. |
+| Login não aceita os botões de demonstração | Confira se o script rodou: `SELECT COUNT(*) FROM psicogest.usuarios;` deve retornar `5`. |
 
 ---
 
