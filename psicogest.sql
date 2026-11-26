@@ -13,6 +13,9 @@ DROP DATABASE IF EXISTS psicogest;
 CREATE DATABASE psicogest CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 USE psicogest;
 
+-- Datas e horas (DATETIME) são gravadas em UTC; a aplicação converte para o fuso de quem usa.
+SET time_zone = '+00:00';
+
 -- ---------------------------------------------------------------------
 -- Estrutura
 -- ---------------------------------------------------------------------
@@ -199,22 +202,23 @@ INSERT INTO clientes_pacientes (id, usuario_id, nome, data_nascimento, telefone,
 INSERT INTO vinculos (psicologo_id, cliente_paciente_id) VALUES
   (1, 1), (1, 2), (1, 3), (1, 4), (2, 4);
 
+-- Horários em UTC: 12:00 UTC = 09:00 em Brasília (UTC−3).
 INSERT INTO sessoes (psicologo_id, cliente_paciente_id, inicio, situacao, valor_centavos, pago) VALUES
-  (1, 1, TIMESTAMP(CURDATE() - INTERVAL 14 DAY, '09:00'), 'realizada', 18000, TRUE),
-  (1, 2, TIMESTAMP(CURDATE() - INTERVAL 7 DAY,  '10:00'), 'faltou',    18000, FALSE),
-  (1, 1, TIMESTAMP(CURDATE() - INTERVAL 7 DAY,  '09:00'), 'realizada', 18000, TRUE),
-  (1, 3, TIMESTAMP(CURDATE() - INTERVAL 6 DAY,  '15:00'), 'realizada', 18000, TRUE),
-  (1, 4, TIMESTAMP(CURDATE() - INTERVAL 1 DAY,  '16:00'), 'realizada', 18000, FALSE),
-  (1, 1, TIMESTAMP(CURDATE(),                   '09:00'), 'realizada', 18000, FALSE),
-  (1, 2, TIMESTAMP(CURDATE(),                   '14:00'), 'agendada',  18000, FALSE),
-  (1, 3, TIMESTAMP(CURDATE(),                   '16:00'), 'agendada',  18000, FALSE),
-  (1, 4, TIMESTAMP(CURDATE() + INTERVAL 1 DAY,  '10:00'), 'agendada',  18000, FALSE),
-  (1, 3, TIMESTAMP(CURDATE() + INTERVAL 3 DAY,  '11:00'), 'cancelada', 18000, FALSE),
-  (1, 1, TIMESTAMP(CURDATE() + INTERVAL 7 DAY,  '09:00'), 'agendada',  18000, FALSE);
+  (1, 1, TIMESTAMP(UTC_DATE() - INTERVAL 14 DAY, '12:00'), 'realizada', 18000, TRUE),
+  (1, 2, TIMESTAMP(UTC_DATE() - INTERVAL 7 DAY,  '13:00'), 'faltou',    18000, FALSE),
+  (1, 1, TIMESTAMP(UTC_DATE() - INTERVAL 7 DAY,  '12:00'), 'realizada', 18000, TRUE),
+  (1, 3, TIMESTAMP(UTC_DATE() - INTERVAL 6 DAY,  '18:00'), 'realizada', 18000, TRUE),
+  (1, 4, TIMESTAMP(UTC_DATE() - INTERVAL 1 DAY,  '19:00'), 'realizada', 18000, FALSE),
+  (1, 1, TIMESTAMP(UTC_DATE(),                   '12:00'), 'realizada', 18000, FALSE),
+  (1, 2, TIMESTAMP(UTC_DATE(),                   '17:00'), 'agendada',  18000, FALSE),
+  (1, 3, TIMESTAMP(UTC_DATE(),                   '19:00'), 'agendada',  18000, FALSE),
+  (1, 4, TIMESTAMP(UTC_DATE() + INTERVAL 1 DAY,  '13:00'), 'agendada',  18000, FALSE),
+  (1, 3, TIMESTAMP(UTC_DATE() + INTERVAL 3 DAY,  '14:00'), 'cancelada', 18000, FALSE),
+  (1, 1, TIMESTAMP(UTC_DATE() + INTERVAL 7 DAY,  '12:00'), 'agendada',  18000, FALSE);
 
--- Pedido pendente da cliente Carla para a próxima segunda-feira às 10h.
+-- Pedido pendente da cliente Carla para a próxima segunda-feira às 10h (Brasília).
 INSERT INTO solicitacoes (cliente_usuario_id, psicologo_id, inicio, mensagem) VALUES
-  (5, 1, TIMESTAMP(CURDATE() + INTERVAL (7 - WEEKDAY(CURDATE())) DAY, '10:00'),
+  (5, 1, TIMESTAMP(UTC_DATE() + INTERVAL (7 - WEEKDAY(UTC_DATE())) DAY, '13:00'),
    'Olá! Gostaria de começar terapia por causa de ansiedade no trabalho.');
 
 INSERT INTO logs_acoes (usuario_id, acao, entidade, entidade_id, detalhes) VALUES

@@ -6,7 +6,7 @@ Front-end e back-end 100% em **TypeScript**.
 | Camada | Tecnologias |
 | ------ | ----------- |
 | Banco  | MySQL 8 — script [`psicogest.sql`](psicogest.sql) |
-| API    | Node.js 22/24, Express, Zod, JWT, bcrypt, helmet — grava num arquivo SQLite local (`backend/data/psi.db`) com o mesmo modelo |
+| API    | Node.js 22/24, Express 5, mysql2, Zod, JWT, bcrypt, helmet |
 | Web    | React 18, React Router 7, Vite 7 |
 
 ---
@@ -68,15 +68,26 @@ perfis ─< usuarios ─1:1─ psicologos ─< vinculos >─ clientes_pacientes
 
 ## 2. Rodando a aplicação
 
-**Pré-requisito:** Node.js 22 ou 24 ([nodejs.org](https://nodejs.org)).
+**Pré-requisito:** Node.js 22 ou 24 ([nodejs.org](https://nodejs.org)) e o banco do passo 1 já importado.
 
-```bash
-npm install
-npm run seed     # cria as contas de demonstração
-npm run dev      # API em :3333 · web em http://localhost:5173
-```
+1. Configure a conexão com o MySQL:
 
-Abra **http://localhost:5173**. A tela de login tem botões de acesso rápido:
+   ```bash
+   cp backend/.env.example backend/.env
+   ```
+
+   Abra `backend/.env` e preencha `DB_PASSWORD` com a senha do usuário `root` do seu MySQL
+   (ou troque `DB_USER`/`DB_PASSWORD` por outro usuário com acesso ao banco `psicogest`).
+
+2. Instale e rode:
+
+   ```bash
+   npm install
+   npm run dev      # API em :3333 · web em http://localhost:5173
+   ```
+
+Abra **http://localhost:5173**. Tudo o que for cadastrado na aplicação é gravado no banco `psicogest` do MySQL.
+A tela de login tem botões de acesso rápido para as contas criadas pelo script:
 
 | Perfil | E-mail | Senha |
 | ------ | ------ | ----- |
@@ -84,8 +95,15 @@ Abra **http://localhost:5173**. A tela de login tem botões de acesso rápido:
 | Psicóloga | psicologo@demo.com | psicologo123 |
 | Cliente | cliente@demo.com | cliente123 |
 
-Outros comandos: `npm test` (testes da API), `npm run typecheck`, `npm run build` e `npm start` (versão compilada em `:3333`).
-Em produção, copie `backend/.env.example` para `backend/.env` e preencha `JWT_SECRET` e `NOTES_KEY`.
+Outros comandos:
+
+| Comando | O que faz |
+| ------- | --------- |
+| `npm test` | 21 testes de integração da API. Cria um banco separado `psicogest_test` a partir do `psicogest.sql` |
+| `npm run typecheck` | Verifica os tipos do back e do front |
+| `npm run build` e `npm start` | Versão compilada (API + front) em http://localhost:3333 |
+
+Em produção, preencha também `JWT_SECRET` e `NOTES_KEY` no `backend/.env`.
 
 ---
 

@@ -2,14 +2,19 @@ import "./test-setup";
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import fs from "node:fs";
+import path from "node:path";
 import { after, before, describe, test } from "node:test";
+import mysql from "mysql2/promise";
 import { createApp } from "./app";
-import { openDb, type Db } from "./db";
+import { config } from "./config";
+import { all, one, openDb, run, type Pool } from "./db";
 import { cadastrarUsuario } from "./users";
 
+const TEST_DB = "psicogest_test";
 let server: Server;
 let base: string;
-let db: Db;
+let db: Pool;
 let crpSeq = 0;
 
 async function call(method: string, path: string, body?: unknown, token?: string) {
@@ -38,20 +43,31 @@ async function register(email: string, name = "Ana Souza", areaAtuacao?: string)
   return { token: r.body.token as string, user: r.body.user };
 }
 
-before(() => {
-  db = openDb(":memory:");
+before(async () => {
+  // Recria um banco só para testes a partir do psicogest.sql (estrutura + dados fictícios).
+  const sql = fs
+    .readFileSync(path.resolve(__dirname, "../../psicogest.sql"), "utf8")
+    .replace(/(DATABASE IF EXISTS|CREATE DATABASE|USE) psicogest\b/g, `$1 ${TEST_DB}`);
+  const conn = await mysql.createConnection({ ...config.db, database: undefined, multipleStatements: true });
+  await conn.query(sql);
+  await conn.end();
+
+  db = openDb(TEST_DB);
   server = createApp(db).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
-after(() => server.close());
+after(async () => {
+  server.close();
+  await db.end();
+});
 
 describe("modelo de dados", () => {
-  test("perfis admin, psicologo e cliente e todas as entidades do modelo mínimo", () => {
-    const perfis = db.prepare("SELECT nome FROM perfis ORDER BY nome").all() as { nome: string }[];
+  test("perfis admin, psicologo e cliente e todas as entidades do modelo mínimo", async () => {
+    const perfis = await all<{ nome: string }>(db, "SELECT nome FROM perfis ORDER BY nome");
     assert.deepEqual(perfis.map((p) => p.nome), ["admin", "cliente", "psicologo"]);
-    const tabelas = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map(
-      (t) => t.name,
-    );
+    const tabelas = (
+      await all<{ name: string }>(db, "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE()")
+    ).map((t) => t.name);
     for (const t of ["usuarios", "perfis", "psicologos", "clientes_pacientes", "vinculos", "logs_acoes", "solicitacoes"]) {
       assert.ok(tabelas.includes(t), `tabela ausente: ${t}`);
     }
@@ -72,9 +88,11 @@ describe("autenticação", () => {
     assert.equal(me.body.user.senha_hash, undefined);
     assert.equal(me.body.user.password_hash, undefined);
 
-    const row = db
-      .prepare("SELECT ps.crp, u.senha_hash FROM psicologos ps JOIN usuarios u ON u.id = ps.usuario_id WHERE u.email = ?")
-      .get("ana@exemplo.com") as { crp: string; senha_hash: string };
+    const row = (await one<{ crp: string; senha_hash: string }>(
+      db,
+      "SELECT ps.crp, u.senha_hash FROM psicologos ps JOIN usuarios u ON u.id = ps.usuario_id WHERE u.email = ?",
+      ["ana@exemplo.com"],
+    ))!;
     assert.match(row.crp, /^03\/\d+$/);
     assert.ok(row.senha_hash.startsWith("$2"), "senha deve estar em hash bcrypt");
   });
@@ -88,7 +106,7 @@ describe("autenticação", () => {
     });
     assert.equal(dupEmail.status, 409);
 
-    const existingCrp = (db.prepare("SELECT crp FROM psicologos LIMIT 1").get() as { crp: string }).crp;
+    const existingCrp = (await one<{ crp: string }>(db, "SELECT crp FROM psicologos LIMIT 1"))!.crp;
     const dupCrp = await call("POST", "/auth/register", {
       tipo: "psicologo",
       name: "Clone", email: "clone@exemplo.com", password: "senha-forte-123", crp: `CRP-${existingCrp}`,
@@ -112,7 +130,7 @@ describe("autenticação", () => {
     const { token, user } = await register("bloqueado@exemplo.com", "Beto Bloqueado");
     assert.equal((await call("GET", "/patients", undefined, token)).status, 200);
 
-    db.prepare("UPDATE usuarios SET situacao = 'bloqueado' WHERE id = ?").run(user.id);
+    await run(db, "UPDATE usuarios SET situacao = 'bloqueado' WHERE id = ?", [user.id]);
     assert.equal((await call("GET", "/patients", undefined, token)).status, 403);
     const login = await call("POST", "/auth/login", { email: "bloqueado@exemplo.com", password: "senha-forte-123" });
     assert.equal(login.status, 403);
@@ -138,12 +156,12 @@ describe("pacientes, vínculos e sessões", () => {
     assert.equal(created.body.patient.active, true);
     patientId = created.body.patient.id;
 
-    const v = db
-      .prepare(
-        `SELECT v.situacao FROM vinculos v JOIN psicologos ps ON ps.id = v.psicologo_id
-         WHERE ps.usuario_id = ? AND v.cliente_paciente_id = ?`,
-      )
-      .get(userId, patientId) as { situacao: string } | undefined;
+    const v = await one<{ situacao: string }>(
+      db,
+      `SELECT v.situacao FROM vinculos v JOIN psicologos ps ON ps.id = v.psicologo_id
+       WHERE ps.usuario_id = ? AND v.cliente_paciente_id = ?`,
+      [userId, patientId],
+    );
     assert.equal(v?.situacao, "ativo");
 
     assert.equal((await call("GET", "/patients?q=clara", undefined, token)).body.patients.length, 1);
@@ -169,9 +187,9 @@ describe("pacientes, vínculos e sessões", () => {
     assert.equal(saved.body.session.note, SEGREDO);
     assert.equal(saved.body.session.status, "done");
 
-    const raw = db.prepare("SELECT anotacao_cripto, situacao FROM sessoes WHERE id = ?").get(sessionId) as {
-      anotacao_cripto: string; situacao: string;
-    };
+    const raw = (await one<{ anotacao_cripto: string; situacao: string }>(
+      db, "SELECT anotacao_cripto, situacao FROM sessoes WHERE id = ?", [sessionId],
+    ))!;
     assert.ok(raw.anotacao_cripto && !raw.anotacao_cripto.includes("conflito"));
     assert.equal(raw.situacao, "realizada");
 
@@ -203,9 +221,9 @@ describe("pacientes, vínculos e sessões", () => {
   test("arquivar encerra o vínculo e impede novos agendamentos; reativar reabre", async () => {
     const archived = await call("PATCH", `/patients/${patientId}`, { active: false }, token);
     assert.equal(archived.body.patient.active, false);
-    const v = db.prepare("SELECT situacao, fim FROM vinculos WHERE cliente_paciente_id = ?").get(patientId) as {
-      situacao: string; fim: string | null;
-    };
+    const v = (await one<{ situacao: string; fim: Date | null }>(
+      db, "SELECT situacao, fim FROM vinculos WHERE cliente_paciente_id = ?", [patientId],
+    ))!;
     assert.equal(v.situacao, "encerrado");
     assert.ok(v.fim);
 
@@ -246,17 +264,18 @@ describe("logs_acoes", () => {
     assert.deepEqual(logs.map((l) => l.action), ["cadastro"]);
   });
 
-  test("é somente-inserção: UPDATE e DELETE são recusados pelo banco", () => {
-    assert.throws(() => db.prepare("UPDATE logs_acoes SET acao = 'x'").run(), /somente inserção/);
-    assert.throws(() => db.prepare("DELETE FROM logs_acoes").run(), /somente inserção/);
+  test("é somente-inserção: UPDATE e DELETE são recusados pelo banco", async () => {
+    await assert.rejects(run(db, "UPDATE logs_acoes SET acao = 'x'"), /somente insercao/);
+    await assert.rejects(run(db, "DELETE FROM logs_acoes"), /somente insercao/);
   });
 
   test("login e tentativa falha ficam registrados", async () => {
     await call("POST", "/auth/login", { email: "eva@exemplo.com", password: "errada-123" });
     await call("POST", "/auth/login", { email: "eva@exemplo.com", password: "senha-forte-123" });
-    const acoes = (db.prepare(
+    const acoes = (await all<{ acao: string }>(
+      db,
       "SELECT l.acao FROM logs_acoes l JOIN usuarios u ON u.id = l.usuario_id WHERE u.email = 'eva@exemplo.com' ORDER BY l.id",
-    ).all() as { acao: string }[]).map((r) => r.acao);
+    )).map((r) => r.acao);
     assert.deepEqual(acoes, ["cadastro", "login_falhou", "login"]);
   });
 });
@@ -266,7 +285,7 @@ describe("administrador", () => {
   let adminId: number;
 
   before(async () => {
-    adminId = cadastrarUsuario(db, { perfil: "admin", name: "Adm", email: "adm@exemplo.com", password: "senha-forte-123" }).id;
+    adminId = (await cadastrarUsuario(db, { perfil: "admin", name: "Adm", email: "adm@exemplo.com", password: "senha-forte-123" })).id;
     admin = (await call("POST", "/auth/login", { email: "adm@exemplo.com", password: "senha-forte-123" })).body.token;
   });
 

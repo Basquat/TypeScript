@@ -10,7 +10,7 @@ const FEATURES: { icon: IconName; title: string; text: string }[] = [
   { icon: "shield", title: "Auditoria imutável", text: "Toda ação relevante vira registro que ninguém altera ou apaga." },
 ];
 
-// Contas fictícias criadas pelo `npm run seed`, para a apresentação.
+// Contas fictícias criadas pelo psicogest.sql, para a apresentação.
 const DEMO = [
   { label: "Admin", email: "admin@demo.com", password: "admin123" },
   { label: "Psicóloga", email: "psicologo@demo.com", password: "psicologo123" },

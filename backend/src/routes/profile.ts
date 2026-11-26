@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { registrarLog } from "../audit";
-import type { Db } from "../db";
+import { run, tx, type Pool } from "../db";
 import { HttpError } from "../http";
 import { idParam, psicologoId, userId } from "../middleware/auth";
 import { loadProfile } from "../profile";
@@ -31,50 +31,46 @@ const educationSchema = z.object({
 });
 
 /** Perfil profissional do psicólogo logado: dados, valor, janelas de atendimento e formação. */
-export function profileRouter(db: Db) {
+export function profileRouter(db: Pool) {
   const router = Router();
 
-  router.get("/", (req, res) => res.json({ profile: loadProfile(db, psicologoId(req)) }));
+  router.get("/", async (req, res) => {
+    res.json({ profile: await loadProfile(db, psicologoId(req)) });
+  });
 
-  router.put("/", (req, res) => {
+  router.put("/", async (req, res) => {
     const psi = psicologoId(req);
     const input = profileSchema.parse(req.body);
-    db.transaction(() => {
-      db.prepare("UPDATE usuarios SET nome = ? WHERE id = ?").run(input.name, userId(req));
-      db.prepare("UPDATE psicologos SET area_atuacao = ?, bio = ?, valor_sessao_centavos = ? WHERE id = ?").run(
-        input.areaAtuacao,
-        input.bio,
-        input.feeCents,
-        psi,
-      );
-      db.prepare("DELETE FROM horarios_disponiveis WHERE psicologo_id = ?").run(psi);
-      const ins = db.prepare(
-        "INSERT INTO horarios_disponiveis (psicologo_id, dia_semana, hora_inicio, hora_fim) VALUES (?, ?, ?, ?)",
-      );
-      for (const w of input.availability) ins.run(psi, w.weekday, w.start, w.end);
-      registrarLog(db, { usuarioId: userId(req), acao: "perfil_atualizado", entidade: "perfil", entidadeId: psi });
-    })();
-    res.json({ profile: loadProfile(db, psi) });
+    await tx(db, async (c) => {
+      await run(c, "UPDATE usuarios SET nome = ? WHERE id = ?", [input.name, userId(req)]);
+      await run(c, "UPDATE psicologos SET area_atuacao = ?, bio = ?, valor_sessao_centavos = ? WHERE id = ?", [
+        input.areaAtuacao, input.bio, input.feeCents, psi,
+      ]);
+      await run(c, "DELETE FROM horarios_disponiveis WHERE psicologo_id = ?", [psi]);
+      for (const w of input.availability) {
+        await run(c, "INSERT INTO horarios_disponiveis (psicologo_id, dia_semana, hora_inicio, hora_fim) VALUES (?, ?, ?, ?)", [
+          psi, w.weekday, w.start, w.end,
+        ]);
+      }
+      await registrarLog(c, { usuarioId: userId(req), acao: "perfil_atualizado", entidade: "perfil", entidadeId: psi });
+    });
+    res.json({ profile: await loadProfile(db, psi) });
   });
 
-  router.post("/education", (req, res) => {
+  router.post("/education", async (req, res) => {
     const psi = psicologoId(req);
     const e = educationSchema.parse(req.body);
-    db.prepare("INSERT INTO formacoes (psicologo_id, tipo, titulo, instituicao, ano) VALUES (?, ?, ?, ?, ?)").run(
-      psi,
-      e.kind,
-      e.title,
-      e.institution,
-      e.year ?? null,
-    );
-    res.status(201).json({ profile: loadProfile(db, psi) });
+    await run(db, "INSERT INTO formacoes (psicologo_id, tipo, titulo, instituicao, ano) VALUES (?, ?, ?, ?, ?)", [
+      psi, e.kind, e.title, e.institution, e.year ?? null,
+    ]);
+    res.status(201).json({ profile: await loadProfile(db, psi) });
   });
 
-  router.delete("/education/:id", (req, res) => {
+  router.delete("/education/:id", async (req, res) => {
     const psi = psicologoId(req);
-    const info = db.prepare("DELETE FROM formacoes WHERE id = ? AND psicologo_id = ?").run(idParam(req.params.id), psi);
-    if (!info.changes) throw new HttpError(404, "Item não encontrado.");
-    res.json({ profile: loadProfile(db, psi) });
+    const info = await run(db, "DELETE FROM formacoes WHERE id = ? AND psicologo_id = ?", [idParam(req.params.id), psi]);
+    if (!info.affectedRows) throw new HttpError(404, "Item não encontrado.");
+    res.json({ profile: await loadProfile(db, psi) });
   });
 
   return router;

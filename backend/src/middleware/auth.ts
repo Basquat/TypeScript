@@ -30,7 +30,7 @@ export function signToken(userId: number): string {
  * vêm sempre do banco, então bloquear/inativar uma conta ou trocar o perfil tem efeito imediato.
  */
 export function requireAuth(db: Db) {
-  return (req: Request, _res: Response, next: NextFunction) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
     const [scheme, token] = (req.header("authorization") ?? "").split(" ");
     if (scheme !== "Bearer" || !token) throw new HttpError(401, "Faça login para continuar.");
 
@@ -41,7 +41,7 @@ export function requireAuth(db: Db) {
       throw new HttpError(401, "Sessão expirada. Entre novamente.");
     }
 
-    const user = findUserById(db, Number(payload.sub));
+    const user = await findUserById(db, Number(payload.sub));
     if (!user) throw new HttpError(401, "Conta não encontrada.");
     if (user.situacao !== "ativo") throw new HttpError(403, "Esta conta não está ativa.");
     req.auth = { userId: user.id, perfil: user.perfil, psicologoId: user.psicologo_id };

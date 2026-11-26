@@ -1,4 +1,4 @@
-import type { Db } from "./db";
+import { all, one, type Db } from "./db";
 import { HttpError } from "./http";
 
 export const SLOT_MIN = 50;
@@ -20,23 +20,30 @@ interface WindowRow {
   hora_fim: string;
 }
 
-const windows = (db: Db, psiId: number) =>
-  db
-    .prepare("SELECT dia_semana, hora_inicio, hora_fim FROM horarios_disponiveis WHERE psicologo_id = ? ORDER BY dia_semana, hora_inicio")
-    .all(psiId) as WindowRow[];
+// TIME volta como "HH:MM:SS"; a aplicação usa "HH:MM".
+const windows = async (db: Db, psiId: number) =>
+  (
+    await all<WindowRow>(
+      db,
+      "SELECT dia_semana, hora_inicio, hora_fim FROM horarios_disponiveis WHERE psicologo_id = ? ORDER BY dia_semana, hora_inicio",
+      [psiId],
+    )
+  ).map((w) => ({ ...w, hora_inicio: w.hora_inicio.slice(0, 5), hora_fim: w.hora_fim.slice(0, 5) }));
 
 /** Perfil profissional (o mesmo que o cliente vê no catálogo). */
-export function loadProfile(db: Db, psiId: number) {
-  const p = db
-    .prepare(
-      `SELECT ps.id, u.nome, u.situacao, ps.crp, ps.area_atuacao, ps.bio, ps.valor_sessao_centavos
-       FROM psicologos ps JOIN usuarios u ON u.id = ps.usuario_id WHERE ps.id = ?`,
-    )
-    .get(psiId) as ProfileRow | undefined;
+export async function loadProfile(db: Db, psiId: number) {
+  const p = await one<ProfileRow>(
+    db,
+    `SELECT ps.id, u.nome, u.situacao, ps.crp, ps.area_atuacao, ps.bio, ps.valor_sessao_centavos
+     FROM psicologos ps JOIN usuarios u ON u.id = ps.usuario_id WHERE ps.id = ?`,
+    [psiId],
+  );
   if (!p) throw new HttpError(404, "Psicólogo não encontrado.");
-  const education = db
-    .prepare("SELECT id, tipo, titulo, instituicao, ano FROM formacoes WHERE psicologo_id = ? ORDER BY ano DESC, id DESC")
-    .all(psiId) as { id: number; tipo: "certificado" | "curso"; titulo: string; instituicao: string | null; ano: number | null }[];
+  const education = await all<{ id: number; tipo: "certificado" | "curso"; titulo: string; instituicao: string | null; ano: number | null }>(
+    db,
+    "SELECT id, tipo, titulo, instituicao, ano FROM formacoes WHERE psicologo_id = ? ORDER BY ano DESC, id DESC",
+    [psiId],
+  );
   return {
     id: p.id,
     name: p.nome,
@@ -45,7 +52,7 @@ export function loadProfile(db: Db, psiId: number) {
     areaAtuacao: p.area_atuacao,
     bio: p.bio,
     feeCents: p.valor_sessao_centavos,
-    availability: windows(db, psiId).map((w) => ({ weekday: w.dia_semana, start: w.hora_inicio, end: w.hora_fim })),
+    availability: (await windows(db, psiId)).map((w) => ({ weekday: w.dia_semana, start: w.hora_inicio, end: w.hora_fim })),
     education: education.map((e) => ({ id: e.id, kind: e.tipo, title: e.titulo, institution: e.instituicao, year: e.ano })),
   };
 }
@@ -60,26 +67,22 @@ const at = (day: Date, hhmm: string) => {
  * menos sessões agendadas e pedidos pendentes, com 1 h de antecedência mínima.
  * ponytail: horários das janelas no fuso do servidor; guardar o fuso do psicólogo se a clínica atender fora dele.
  */
-export function freeSlots(db: Db, psiId: number, days = 14, now = new Date()): string[] {
-  const ws = windows(db, psiId);
+export async function freeSlots(db: Db, psiId: number, days = 14, now = new Date()): Promise<string[]> {
+  const ws = await windows(db, psiId);
   if (!ws.length) return [];
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const until = new Date(today);
   until.setDate(today.getDate() + days);
-  const range = [today.toISOString(), until.toISOString()];
 
   const busy = (
-    db
-      .prepare(
-        `SELECT inicio, duracao_min FROM sessoes WHERE psicologo_id = ? AND situacao = 'agendada' AND inicio >= ? AND inicio < ?
-         UNION ALL
-         SELECT inicio, duracao_min FROM solicitacoes WHERE psicologo_id = ? AND situacao = 'pendente' AND inicio >= ? AND inicio < ?`,
-      )
-      .all(psiId, ...range, psiId, ...range) as { inicio: string; duracao_min: number }[]
-  ).map((b) => {
-    const s = Date.parse(b.inicio);
-    return [s, s + b.duracao_min * 60_000] as const;
-  });
+    await all<{ inicio: Date; duracao_min: number }>(
+      db,
+      `SELECT inicio, duracao_min FROM sessoes WHERE psicologo_id = :psi AND situacao = 'agendada' AND inicio >= :de AND inicio < :ate
+       UNION ALL
+       SELECT inicio, duracao_min FROM solicitacoes WHERE psicologo_id = :psi AND situacao = 'pendente' AND inicio >= :de AND inicio < :ate`,
+      { psi: psiId, de: today, ate: until },
+    )
+  ).map((b) => [b.inicio.getTime(), b.inicio.getTime() + b.duracao_min * 60_000] as const);
 
   const earliest = now.getTime() + MIN_LEAD_MIN * 60_000;
   const out: string[] = [];

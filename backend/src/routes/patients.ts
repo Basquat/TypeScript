@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { registrarLog } from "../audit";
-import type { Db } from "../db";
+import { all, one, run, tx, type Db, type Pool } from "../db";
 import { HttpError } from "../http";
 import { idParam, psicologoId, userId } from "../middleware/auth";
 import { nameField, optionalDate, optionalText } from "../users";
@@ -13,7 +13,7 @@ interface PatientRow {
   data_nascimento: string | null;
   telefone: string | null;
   email: string | null;
-  criado_em: string;
+  criado_em: Date;
   vinculo_situacao: "ativo" | "encerrado";
 }
 
@@ -51,74 +51,72 @@ const listQuery = z.object({
   archived: z.enum(["0", "1"]).optional(),
 });
 
-function findOwned(db: Db, psiId: number, id: number): PatientRow {
-  const row = db.prepare(`${SELECT} WHERE v.psicologo_id = ? AND cp.id = ?`).get(psiId, id) as
-    | PatientRow
-    | undefined;
+async function findOwned(db: Db, psiId: number, id: number): Promise<PatientRow> {
+  const row = await one<PatientRow>(db, `${SELECT} WHERE v.psicologo_id = ? AND cp.id = ?`, [psiId, id]);
   if (!row) throw new HttpError(404, "Paciente não encontrado.");
   return row;
 }
 
-export function patientsRouter(db: Db) {
+export function patientsRouter(db: Pool) {
   const router = Router();
 
-  router.get("/", (req, res) => {
+  router.get("/", async (req, res) => {
     const { q, archived } = listQuery.parse(req.query);
-    const where = ["v.psicologo_id = @psi"];
+    const where = ["v.psicologo_id = :psi"];
     const params: Record<string, unknown> = { psi: psicologoId(req) };
     if (archived !== "1") where.push("v.situacao = 'ativo'");
     if (q) {
-      where.push("cp.nome LIKE @q");
+      where.push("cp.nome LIKE :q");
       params.q = `%${q}%`;
     }
-    const rows = db
-      .prepare(`${SELECT} WHERE ${where.join(" AND ")} ORDER BY cp.nome COLLATE NOCASE`)
-      .all(params) as PatientRow[];
+    const rows = await all<PatientRow>(db, `${SELECT} WHERE ${where.join(" AND ")} ORDER BY cp.nome`, params);
     res.json({ patients: rows.map(toPatient) });
   });
 
   // Cadastrar um paciente cria também o vínculo com o psicólogo logado.
-  router.post("/", (req, res) => {
+  router.post("/", async (req, res) => {
     const input = patientSchema.parse(req.body);
     const psi = psicologoId(req);
-    const id = db.transaction(() => {
-      const info = db
-        .prepare("INSERT INTO clientes_pacientes (nome, data_nascimento, telefone, email) VALUES (?, ?, ?, ?)")
-        .run(input.name, input.birthDate, input.phone, input.email);
-      const pacienteId = Number(info.lastInsertRowid);
-      db.prepare("INSERT INTO vinculos (psicologo_id, cliente_paciente_id) VALUES (?, ?)").run(psi, pacienteId);
-      registrarLog(db, { usuarioId: userId(req), acao: "paciente_criado", entidade: "paciente", entidadeId: pacienteId });
+    const id = await tx(db, async (c) => {
+      const pacienteId = (
+        await run(c, "INSERT INTO clientes_pacientes (nome, data_nascimento, telefone, email) VALUES (?, ?, ?, ?)", [
+          input.name, input.birthDate, input.phone, input.email,
+        ])
+      ).insertId;
+      await run(c, "INSERT INTO vinculos (psicologo_id, cliente_paciente_id) VALUES (?, ?)", [psi, pacienteId]);
+      await registrarLog(c, { usuarioId: userId(req), acao: "paciente_criado", entidade: "paciente", entidadeId: pacienteId });
       return pacienteId;
-    })();
-    res.status(201).json({ patient: toPatient(findOwned(db, psi, id)) });
+    });
+    res.status(201).json({ patient: toPatient(await findOwned(db, psi, id)) });
   });
 
-  router.get("/:id", (req, res) => {
+  router.get("/:id", async (req, res) => {
     const psi = psicologoId(req);
-    const row = findOwned(db, psi, idParam(req.params.id));
-    res.json({ patient: toPatient(row), sessions: sessionsForPatient(db, psi, row.id) });
+    const row = await findOwned(db, psi, idParam(req.params.id));
+    res.json({ patient: toPatient(row), sessions: await sessionsForPatient(db, psi, row.id) });
   });
 
-  router.patch("/:id", (req, res) => {
+  router.patch("/:id", async (req, res) => {
     const psi = psicologoId(req);
-    const current = findOwned(db, psi, idParam(req.params.id));
+    const current = await findOwned(db, psi, idParam(req.params.id));
     const input = updateSchema.parse(req.body);
     const body = req.body as Record<string, unknown>;
     const campos = ["name", "birthDate", "phone", "email"].filter((k) => k in body);
 
-    db.transaction(() => {
-      db.prepare(
-        `UPDATE clientes_pacientes SET nome = @nome, data_nascimento = @nasc, telefone = @tel, email = @email
-         WHERE id = @id`,
-      ).run({
-        id: current.id,
-        nome: input.name ?? current.nome,
-        nasc: "birthDate" in body ? input.birthDate ?? null : current.data_nascimento,
-        tel: "phone" in body ? input.phone ?? null : current.telefone,
-        email: "email" in body ? input.email ?? null : current.email,
-      });
+    await tx(db, async (c) => {
+      await run(
+        c,
+        "UPDATE clientes_pacientes SET nome = :nome, data_nascimento = :nasc, telefone = :tel, email = :email WHERE id = :id",
+        {
+          id: current.id,
+          nome: input.name ?? current.nome,
+          nasc: "birthDate" in body ? input.birthDate ?? null : current.data_nascimento,
+          tel: "phone" in body ? input.phone ?? null : current.telefone,
+          email: "email" in body ? input.email ?? null : current.email,
+        },
+      );
       if (campos.length) {
-        registrarLog(db, {
+        await registrarLog(c, {
           usuarioId: userId(req), acao: "paciente_editado", entidade: "paciente",
           entidadeId: current.id, detalhes: { campos },
         });
@@ -127,24 +125,22 @@ export function patientsRouter(db: Db) {
       // "Arquivar" = encerrar o vínculo com este psicólogo; "reativar" = reabrir.
       const wasActive = current.vinculo_situacao === "ativo";
       if (input.active !== undefined && input.active !== wasActive) {
-        db.prepare(
-          "UPDATE vinculos SET situacao = @s, fim = @fim WHERE psicologo_id = @psi AND cliente_paciente_id = @id",
-        ).run({
+        await run(c, "UPDATE vinculos SET situacao = :s, fim = :fim WHERE psicologo_id = :psi AND cliente_paciente_id = :id", {
           s: input.active ? "ativo" : "encerrado",
-          fim: input.active ? null : new Date().toISOString(),
+          fim: input.active ? null : new Date(),
           psi,
           id: current.id,
         });
-        registrarLog(db, {
+        await registrarLog(c, {
           usuarioId: userId(req),
           acao: input.active ? "paciente_reativado" : "paciente_arquivado",
           entidade: "paciente",
           entidadeId: current.id,
         });
       }
-    })();
+    });
 
-    res.json({ patient: toPatient(findOwned(db, psi, current.id)) });
+    res.json({ patient: toPatient(await findOwned(db, psi, current.id)) });
   });
 
   // Sem DELETE de propósito: prontuários têm prazo mínimo de guarda; use "arquivar".

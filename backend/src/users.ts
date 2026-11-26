@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { registrarLog } from "./audit";
 import { config } from "./config";
-import type { Db } from "./db";
+import { one, run, tx, type Db, type Pool } from "./db";
 import { HttpError } from "./http";
 
 export const PERFIS = ["admin", "psicologo", "cliente"] as const;
@@ -83,7 +83,7 @@ export interface UserRecord {
   psicologo_id: number | null;
   crp: string | null;
   area_atuacao: string | null;
-  criado_em: string;
+  criado_em: Date;
 }
 
 export const USER_SELECT = `
@@ -93,11 +93,9 @@ export const USER_SELECT = `
   JOIN perfis p ON p.id = u.perfil_id
   LEFT JOIN psicologos ps ON ps.usuario_id = u.id`;
 
-export const findUserByEmail = (db: Db, email: string) =>
-  db.prepare(`${USER_SELECT} WHERE u.email = ?`).get(email) as UserRecord | undefined;
+export const findUserByEmail = (db: Db, email: string) => one<UserRecord>(db, `${USER_SELECT} WHERE u.email = ?`, [email]);
 
-export const findUserById = (db: Db, id: number) =>
-  db.prepare(`${USER_SELECT} WHERE u.id = ?`).get(id) as UserRecord | undefined;
+export const findUserById = (db: Db, id: number) => one<UserRecord>(db, `${USER_SELECT} WHERE u.id = ?`, [id]);
 
 export const publicUser = (u: UserRecord) => ({
   id: u.id,
@@ -111,11 +109,11 @@ export const publicUser = (u: UserRecord) => ({
   createdAt: u.criado_em,
 });
 
-export const perfilId = (db: Db, perfil: Perfil) =>
-  (db.prepare("SELECT id FROM perfis WHERE nome = ?").get(perfil) as { id: number }).id;
+export const perfilId = async (db: Db, perfil: Perfil) =>
+  (await one<{ id: number }>(db, "SELECT id FROM perfis WHERE nome = ?", [perfil]))!.id;
 
-export function assertCrpLivre(db: Db, crp: string) {
-  if (db.prepare("SELECT 1 FROM psicologos WHERE crp = ?").get(crp)) {
+export async function assertCrpLivre(db: Db, crp: string) {
+  if (await one(db, "SELECT 1 FROM psicologos WHERE crp = ?", [crp])) {
     throw new HttpError(409, "Já existe um psicólogo cadastrado com este CRP.");
   }
 }
@@ -124,38 +122,38 @@ export function assertCrpLivre(db: Db, crp: string) {
  * Cria a conta e o registro do perfil (psicologos ou clientes_pacientes) numa única transação.
  * `autorId` é quem cadastrou (o admin); sem ele, o próprio usuário (cadastro público).
  */
-export function cadastrarUsuario(
-  db: Db,
+export async function cadastrarUsuario(
+  pool: Pool,
   input: NovoUsuario,
   opts: { autorId?: number; origem?: string } = {},
-): UserRecord {
-  if (db.prepare("SELECT 1 FROM usuarios WHERE email = ?").get(input.email)) {
+): Promise<UserRecord> {
+  if (await one(pool, "SELECT 1 FROM usuarios WHERE email = ?", [input.email])) {
     throw new HttpError(409, "Já existe uma conta com este e-mail.");
   }
   if (input.perfil === "psicologo") {
     if (!input.crp) throw new HttpError(400, "Informe o CRP do psicólogo.");
-    assertCrpLivre(db, input.crp);
+    await assertCrpLivre(pool, input.crp);
   }
 
-  const hash = bcrypt.hashSync(input.password, config.bcryptCost);
-  const id = db.transaction(() => {
-    const u = db
-      .prepare("INSERT INTO usuarios (perfil_id, nome, email, senha_hash) VALUES (?, ?, ?, ?)")
-      .run(perfilId(db, input.perfil), input.name, input.email, hash);
-    const userId = Number(u.lastInsertRowid);
+  const hash = await bcrypt.hash(input.password, config.bcryptCost);
+  const id = await tx(pool, async (c) => {
+    const u = await run(c, "INSERT INTO usuarios (perfil_id, nome, email, senha_hash) VALUES (?, ?, ?, ?)", [
+      await perfilId(c, input.perfil), input.name, input.email, hash,
+    ]);
+    const userId = u.insertId;
     if (input.perfil === "psicologo") {
-      db.prepare("INSERT INTO psicologos (usuario_id, crp, area_atuacao) VALUES (?, ?, ?)").run(
-        userId,
-        input.crp,
-        input.areaAtuacao ?? null,
-      );
+      await run(c, "INSERT INTO psicologos (usuario_id, crp, area_atuacao) VALUES (?, ?, ?)", [
+        userId, input.crp, input.areaAtuacao ?? null,
+      ]);
     }
     if (input.perfil === "cliente") {
-      db.prepare(
+      await run(
+        c,
         "INSERT INTO clientes_pacientes (usuario_id, nome, email, telefone, data_nascimento) VALUES (?, ?, ?, ?, ?)",
-      ).run(userId, input.name, input.email, input.phone ?? null, input.birthDate ?? null);
+        [userId, input.name, input.email, input.phone ?? null, input.birthDate ?? null],
+      );
     }
-    registrarLog(db, {
+    await registrarLog(c, {
       usuarioId: opts.autorId ?? userId,
       acao: opts.autorId ? "usuario_criado" : "cadastro",
       entidade: "usuario",
@@ -163,21 +161,16 @@ export function cadastrarUsuario(
       detalhes: { origem: opts.origem ?? "web", perfil: input.perfil },
     });
     return userId;
-  })();
+  });
 
-  return findUserById(db, id)!;
+  return (await findUserById(pool, id))!;
 }
 
 /** Ficha de paciente da conta de cliente; criada na primeira necessidade se ainda não existir. */
-export function pacienteDoCliente(db: Db, userId: number): number {
-  const row = db.prepare("SELECT id FROM clientes_pacientes WHERE usuario_id = ?").get(userId) as
-    | { id: number }
-    | undefined;
+export async function pacienteDoCliente(db: Db, userId: number): Promise<number> {
+  const row = await one<{ id: number }>(db, "SELECT id FROM clientes_pacientes WHERE usuario_id = ?", [userId]);
   if (row) return row.id;
-  const u = findUserById(db, userId)!;
-  return Number(
-    db
-      .prepare("INSERT INTO clientes_pacientes (usuario_id, nome, email) VALUES (?, ?, ?)")
-      .run(userId, u.nome, u.email).lastInsertRowid,
-  );
+  const u = (await findUserById(db, userId))!;
+  return (await run(db, "INSERT INTO clientes_pacientes (usuario_id, nome, email) VALUES (?, ?, ?)", [userId, u.nome, u.email]))
+    .insertId;
 }

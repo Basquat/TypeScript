@@ -1,4 +1,4 @@
-import type { Db } from "./db";
+import { run, type Db } from "./db";
 
 export interface LogEntry {
   usuarioId: number | null;
@@ -9,8 +9,12 @@ export interface LogEntry {
   detalhes?: Record<string, unknown>;
 }
 
-export function registrarLog(db: Db, e: LogEntry): void {
-  db.prepare(
-    "INSERT INTO logs_acoes (usuario_id, acao, entidade, entidade_id, detalhes) VALUES (?, ?, ?, ?, ?)",
-  ).run(e.usuarioId, e.acao, e.entidade, e.entidadeId ?? null, e.detalhes ? JSON.stringify(e.detalhes) : null);
+export async function registrarLog(db: Db, e: LogEntry): Promise<void> {
+  await run(db, "INSERT INTO logs_acoes (usuario_id, acao, entidade, entidade_id, detalhes) VALUES (?, ?, ?, ?, ?)", [
+    e.usuarioId,
+    e.acao,
+    e.entidade,
+    e.entidadeId ?? null,
+    e.detalhes ? JSON.stringify(e.detalhes) : null,
+  ]);
 }
