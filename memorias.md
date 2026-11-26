@@ -327,3 +327,15 @@ O aplicativo estara disponivel em `http://localhost:3000`.
 
 **Proxima etapa:** Corrigir bugs TypeScript restantes e implementar o back-end em TypeScript e o banco de dados MySQL para integrar com este front-end.
 
+
+---
+
+## 7. Nova base: React + back-end TypeScript (2026-11-26)
+
+- O front-end antigo (TS puro com dados em localStorage) foi substituído por `frontend/` em React + TypeScript, e foi criado `backend/` (Express + TypeScript, SQLite).
+- Os bugs listados na seção 4.2 eram do front-end antigo e deixaram de existir com ele.
+- Perfis: administrador, psicólogo e cliente. Cadastro público de psicólogo e de cliente; administrador só pelo seed ou por outro admin.
+- Pacientes podem ser cadastrados pelo psicólogo (vínculo automático) ou pelo administrador (escolhendo o psicólogo).
+- Inovação implementada: agenda com confirmação (`solicitacoes`). Cliente pede um horário livre, psicólogo confirma (cria vínculo + sessão) ou recusa.
+- Também entraram: perfil profissional (bio, valor, janelas de atendimento, cursos/certificados), agenda semanal e mensal, sessões semanais recorrentes, indicadores no painel e auditoria completa para o admin.
+- Pendente: trocar SQLite por MySQL (exigência da AV3), DER/dicionário de dados e documentação final.
