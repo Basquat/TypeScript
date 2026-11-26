@@ -5,46 +5,78 @@ Front-end e back-end 100% em **TypeScript**.
 
 | Camada | Tecnologias |
 | ------ | ----------- |
-| API    | Node 22/24, Express, SQLite (better-sqlite3), Zod, JWT, bcrypt, helmet, rate limit |
-| Web    | React 18, React Router 7, Vite 7 — tema escuro próprio, sem biblioteca de UI |
+| Banco  | MySQL 8 — script [`psicogest.sql`](psicogest.sql) |
+| API    | Node.js 22/24, Express, Zod, JWT, bcrypt, helmet — grava num arquivo SQLite local (`backend/data/psi.db`) com o mesmo modelo |
+| Web    | React 18, React Router 7, Vite 7 |
 
-## Perfis e funcionalidades
+---
 
-**Administrador**
-- Visão geral: usuários, psicólogos, pacientes, sessões futuras, pedidos pendentes, contas por situação e por perfil.
-- Usuários: cadastrar (qualquer perfil), editar, trocar perfil, **ativar / bloquear / inativar**. Ninguém altera o próprio perfil ou a própria situação.
-- Pacientes: cadastrar já vinculado a um psicólogo, editar, vincular a mais psicólogos.
-- Auditoria completa (`logs_acoes`), com autor e filtro.
+## 1. Banco de dados (MySQL)
 
-**Psicólogo**
-- Hoje: indicadores (sessões na semana, a receber, recebido no mês, comparecimento em 30 dias, solicitações), linha do tempo e próxima sessão.
-- Agenda semanal e mensal, com bloqueio de horários sobrepostos e **sessões semanais recorrentes** (4, 8 ou 12 semanas, tudo ou nada).
-- Pacientes: cadastro (cria o vínculo), busca, arquivar/reativar (sem exclusão: prontuário tem prazo de guarda).
-- Sessão: situação, valor, pagamento e **anotações criptografadas (AES-256-GCM)**.
-- Perfil profissional: apresentação, valor padrão, janelas semanais de atendimento, cursos e certificados.
-- **Solicitações** (funcionalidade de inovação): confirmar ou recusar pedidos de horário; confirmar cria vínculo + sessão.
+O arquivo [`psicogest.sql`](psicogest.sql), na raiz do repositório, cria o banco `psicogest`, todas as tabelas,
+chaves primárias e estrangeiras, restrições, triggers e os dados fictícios de demonstração.
 
-**Cliente**
-- Catálogo de psicólogos ativos com busca por nome ou área.
-- Perfil público com **horários livres reais** (janelas do psicólogo menos sessões e pedidos pendentes) e pedido de horário com mensagem.
-- Minhas consultas: pedidos (cancelar pendentes), próxima consulta e histórico. Nunca vê anotações clínicas.
+**Pré-requisito:** MySQL Server 8 instalado ([dev.mysql.com/downloads/mysql](https://dev.mysql.com/downloads/mysql/)).
 
-## Funcionalidade de inovação — agenda com confirmação
+**Opção A — linha de comando**
 
-Tabela `solicitacoes` (a `entidade_inovacao` do modelo). O cliente escolhe um horário livre; o psicólogo confirma ou recusa.
-Ao confirmar, o sistema cria (ou reabre) o vínculo e agenda a sessão com o valor do perfil, numa única transação.
+```bash
+mysql -u root -p < psicogest.sql
+```
 
-## Como rodar
+**Opção B — MySQL Workbench**
 
-Requisito: Node.js 22 ou 24 (LTS).
+1. Abra uma conexão com o servidor local.
+2. *File → Open SQL Script…* e escolha `psicogest.sql`.
+3. Execute o script inteiro (ícone do raio ⚡).
+
+Ao final, o script mostra a contagem de linhas por tabela. Para conferir:
+
+```sql
+USE psicogest;
+SHOW TABLES;
+SELECT u.nome, p.nome AS perfil, u.situacao FROM usuarios u JOIN perfis p ON p.id = u.perfil_id;
+```
+
+> O script apaga e recria o banco `psicogest` a cada execução. Todos os dados são fictícios.
+
+### Modelo de dados
+
+```
+perfis ─< usuarios ─1:1─ psicologos ─< vinculos >─ clientes_pacientes
+              │               ├─< sessoes >───────────────┘
+              │               ├─< horarios_disponiveis
+              │               ├─< formacoes
+              │               └─< solicitacoes >── usuarios (cliente)
+              └─< logs_acoes
+```
+
+| Tabela | Finalidade |
+| ------ | ---------- |
+| `perfis` | Administrador, psicólogo e cliente |
+| `usuarios` | Nome, e-mail, hash bcrypt da senha, situação (ativo / inativo / bloqueado) e perfil |
+| `psicologos` | CRP, área de atuação, apresentação e valor da sessão (1:1 com `usuarios`) |
+| `clientes_pacientes` | Dados administrativos do cliente/paciente |
+| `vinculos` | Psicólogo ↔ paciente, com situação (ativo / encerrado), início e fim |
+| `sessoes` | Agenda, duração, situação, valor, pagamento e anotação clínica criptografada |
+| `horarios_disponiveis` | Janelas semanais de atendimento do psicólogo |
+| `formacoes` | Cursos e certificados do psicólogo |
+| `solicitacoes` | **Entidade de inovação** — pedidos de horário dos clientes |
+| `logs_acoes` | Autor, ação, entidade e data/hora. Triggers impedem UPDATE e DELETE |
+
+---
+
+## 2. Rodando a aplicação
+
+**Pré-requisito:** Node.js 22 ou 24 ([nodejs.org](https://nodejs.org)).
 
 ```bash
 npm install
-npm run seed     # dados fictícios de demonstração (roda uma vez)
-npm run dev      # API em :3333 e web em http://localhost:5173
+npm run seed     # cria as contas de demonstração
+npm run dev      # API em :3333 · web em http://localhost:5173
 ```
 
-Contas de demonstração (fictícias, criadas pelo seed; também há botões na tela de login):
+Abra **http://localhost:5173**. A tela de login tem botões de acesso rápido:
 
 | Perfil | E-mail | Senha |
 | ------ | ------ | ----- |
@@ -52,64 +84,52 @@ Contas de demonstração (fictícias, criadas pelo seed; também há botões na 
 | Psicóloga | psicologo@demo.com | psicologo123 |
 | Cliente | cliente@demo.com | cliente123 |
 
-Produção:
+Outros comandos: `npm test` (testes da API), `npm run typecheck`, `npm run build` e `npm start` (versão compilada em `:3333`).
+Em produção, copie `backend/.env.example` para `backend/.env` e preencha `JWT_SECRET` e `NOTES_KEY`.
 
-```bash
-cp backend/.env.example backend/.env   # preencha JWT_SECRET e NOTES_KEY
-npm run build
-npm start                              # API + front compilado em http://localhost:3333
-```
+---
 
-Gere os segredos com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
-Faça backup do `NOTES_KEY` (sem ele as anotações não podem ser lidas) e do banco (`backend/data/psi.db`).
+## 3. Funcionalidades
 
-## Comandos
+**Administrador** — painel com totais e contas por situação/perfil; cadastra, edita, **ativa, bloqueia e inativa** usuários
+e define o perfil (ninguém altera o próprio acesso); cadastra pacientes e os vincula a psicólogos; consulta a auditoria completa.
 
-| Comando | O que faz |
-| ------- | --------- |
-| `npm run dev` | API + web com recarga automática |
-| `npm test` | Testes de integração da API (banco em memória) |
-| `npm run typecheck` | Verifica tipos do back e do front |
-| `npm run build` | Compila back e front |
-| `npm run seed` | Popula o banco com dados fictícios |
+**Psicólogo** — painel do dia com indicadores (sessões na semana, a receber, comparecimento); agenda semanal e mensal com
+bloqueio de conflito e sessões semanais recorrentes; pacientes com busca e arquivamento; anotações de sessão
+criptografadas (AES-256-GCM); perfil profissional com horários de atendimento e formação; responde solicitações.
 
-## Modelo de dados
+**Cliente** — encontra psicólogos por nome ou área, vê horários realmente livres, pede um horário e acompanha suas consultas.
 
-```
-perfis ─< usuarios ─1:1─ psicologos ─< vinculos >─ clientes_pacientes
-              │               ├─< sessoes >───────────────┘
-              │               ├─< horarios_disponiveis, formacoes
-              │               └─< solicitacoes >─ usuarios (cliente)
-              └─< logs_acoes   (somente inserção: triggers bloqueiam UPDATE/DELETE)
-```
+### Inovação: agenda com confirmação
 
-## API (resumo)
+O cliente escolhe um horário livre (janelas do psicólogo menos sessões e pedidos pendentes). O psicólogo confirma ou recusa;
+ao confirmar, o vínculo e a sessão são criados numa única transação.
+
+### Segurança
+
+Senhas só em hash bcrypt · JWT com perfil e situação relidos do banco a cada requisição (bloqueio vale na hora) ·
+autorização validada no back-end · validação de entrada com Zod · limite de tentativas no login ·
+anotações clínicas criptografadas e nunca registradas em log · auditoria somente-inserção.
+
+---
+
+## 4. API (resumo)
 
 ```
-POST /api/auth/register  (tipo: psicologo | cliente)   POST /api/auth/login   GET /api/auth/me
-GET  /api/logs                                          (histórico do próprio usuário)
+POST /api/auth/register · POST /api/auth/login · GET /api/auth/me · GET /api/logs
 
-Psicólogo
-GET|POST /api/patients            GET|PATCH /api/patients/:id
-GET|POST /api/sessions            GET|PATCH|DELETE /api/sessions/:id   (POST aceita repeatWeeks)
-GET /api/summary                  GET|PUT /api/profile   POST|DELETE /api/profile/education[/:id]
-GET /api/requests                 PATCH /api/requests/:id  (accept | decline)
-
-Cliente
-GET /api/client/psychologists     GET /api/client/psychologists/:id  (perfil + horários livres)
-GET|POST /api/client/requests     PATCH /api/client/requests/:id  (cancel)
-GET /api/client/sessions
-
-Administrador
-GET /api/admin/summary            GET|POST /api/admin/users     PATCH /api/admin/users/:id
-GET|POST /api/admin/patients      PATCH /api/admin/patients/:id GET /api/admin/logs
+Psicólogo   /api/patients · /api/sessions · /api/summary · /api/profile · /api/requests
+Cliente     /api/client/psychologists · /api/client/requests · /api/client/sessions
+Admin       /api/admin/summary · /api/admin/users · /api/admin/patients · /api/admin/logs
 ```
 
-A autorização é sempre validada no back-end: perfil e situação da conta são relidos do banco a cada requisição.
+---
 
-## Pendências conhecidas
+## 5. Estrutura
 
-- **Banco**: a AV3 exige MySQL; esta versão usa SQLite. A troca fica concentrada em `backend/src/db.ts` e nas consultas das rotas.
-- Só as anotações são criptografadas em nível de campo; nome e contato do paciente ficam em texto no banco.
-- O JWT fica no `localStorage`; para endurecer, migrar para cookie `HttpOnly`.
-- Horários livres usam o fuso do servidor.
+```
+psicogest.sql   Banco MySQL: estrutura + dados fictícios
+backend/        API Express + TypeScript (rotas, regras, autenticação, testes)
+frontend/       Interface React + TypeScript (telas de admin, psicólogo e cliente)
+AV3-UJ.docx     Enunciado da atividade
+```
