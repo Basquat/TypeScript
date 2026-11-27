@@ -1,5 +1,10 @@
 # UJCaps — PsicoGest
 
+[![CI](https://github.com/Basquat/TypeScript/actions/workflows/ci.yml/badge.svg)](https://github.com/Basquat/TypeScript/actions/workflows/ci.yml)
+
+📚 **Documentação completa:** [Wiki](https://github.com/Basquat/TypeScript/wiki) · [pasta `docs/`](docs/Home.md) —
+requisitos, casos de uso, arquitetura, DER, API, testes, inovação e manual do usuário.
+
 Plataforma web de gestão para profissionais de Psicologia (AV3 — Projeto Integrador).
 Front-end e back-end 100% em **TypeScript**.
 
@@ -185,5 +190,6 @@ Admin       /api/admin/summary · /api/admin/users · /api/admin/patients · /ap
 psicogest.sql   Banco MySQL: estrutura + dados fictícios
 backend/        API Express + TypeScript (rotas, regras, autenticação, testes)
 frontend/       Interface React + TypeScript (telas de admin, psicólogo e cliente)
+docs/           Documentação completa (espelhada na Wiki)
 AV3-UJ.docx     Enunciado da atividade
 ```
