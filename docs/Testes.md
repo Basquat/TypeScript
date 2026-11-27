@@ -43,7 +43,17 @@ a cada push na `main` e em todo pull request. O resultado de cada execução fic
 
 ## Resultados
 
-Ver a execução mais recente na aba **Actions** do repositório (job `test`).
+Execução no GitHub Actions em 27/11/2026 (MySQL 8.4, Node 22):
+[run 46058621841](https://github.com/Basquat/TypeScript/actions/runs/46058621841)
+
+```
+# tests 21
+# suites 6
+# pass 21
+# fail 0
+```
+
+`npm run typecheck` e `npm run build` também passaram no mesmo job. Execuções mais recentes ficam na aba **Actions**.
 
 ## Testes manuais (fluxos principais)
 
